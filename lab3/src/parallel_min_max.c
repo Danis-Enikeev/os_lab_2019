@@ -14,11 +14,19 @@
 
 #include "find_min_max.h"
 #include "utils.h"
+pid_t currentPID;
+void KillChild(int signum){
+    if (kill(currentPID, SIGKILL)==0)
+        printf ("child process was successfully killed");
+    else
+        printf ("error while killing a child process");
+}
 
 int main(int argc, char **argv) {
   int seed = -1;
   int array_size = -1;
   int pnum = -1;
+  int timeout = -1;
   bool with_files = false;
 
   while (true) {
@@ -28,6 +36,7 @@ int main(int argc, char **argv) {
                                       {"array_size", required_argument, 0, 0},
                                       {"pnum", required_argument, 0, 0},
                                       {"by_files", no_argument, 0, 'f'},
+                                      {"timeout", required_argument, 0, 0},
                                       {0, 0, 0, 0}};
 
     int option_index = 0;
@@ -62,8 +71,14 @@ int main(int argc, char **argv) {
           case 3:
             with_files = true;
             break;
-
-          defalut:
+          case 4: 
+            timeout = atoi(optarg);
+            if (timeout < 0){
+                printf("timeout is a positive number\n");
+                return 1;
+            }
+            break;
+          default:
             printf("Index %d is out of options\n", option_index);
         }
         break;
@@ -83,7 +98,7 @@ int main(int argc, char **argv) {
     printf("Has at least one no option argument\n");
     return 1;
   }
-
+    
   if (seed == -1 || array_size == -1 || pnum == -1) {
     printf("Usage: %s --seed \"num\" --array_size \"num\" --pnum \"num\" \n",
            argv[0]);
@@ -93,15 +108,15 @@ int main(int argc, char **argv) {
   int *array = malloc(sizeof(int) * array_size);
   GenerateArray(array, array_size, seed);
   int active_child_processes = 0;
+
   
   int part = array_size/pnum;
   int pipefd[2];
   pipe(pipefd);
-  pid_t currentPID;
+  
   struct MinMax minMaxBuff;
   struct timeval start_time;
   gettimeofday(&start_time, NULL);
-
   for (int i = 0; i < pnum; i++) {
     pid_t child_pid = fork();
     if (child_pid >= 0) {
@@ -130,6 +145,11 @@ int main(int argc, char **argv) {
   }
   while (active_child_processes > 0) {
     // your code here
+    
+    if (timeout>0){
+        ualarm (timeout*1000, 0);
+        signal (SIGALRM, KillChild);
+    }
     close(pipefd[1]);
     wait(NULL);
     active_child_processes -= 1;
@@ -144,11 +164,11 @@ int main(int argc, char **argv) {
         FILE* outFile = fopen("out.txt", "rb");
         fseek(outFile, i*sizeof(struct MinMax), SEEK_SET);
         fread(&minMaxBuff, sizeof(struct MinMax), 1, outFile);
-        printf("pnum:%i:\tmin:%7i     max:%i\n", i, minMaxBuff.min, minMaxBuff.max);
+        //printf("pnum:%i:\tmin:%7i     max:%i\n", i, minMaxBuff.min, minMaxBuff.max);
         fclose(outFile);
     } else {
       read(pipefd[0], &minMaxBuff, sizeof(struct MinMax));
-      printf( "pnum:%i\tmin:%7i     max:%i\n", i, minMaxBuff.min, minMaxBuff.max);
+      //printf( "pnum:%i\tmin:%7i     max:%i\n", i, minMaxBuff.min, minMaxBuff.max);
     }
 
     if (minMaxBuff.min < min_max.min)
@@ -163,11 +183,11 @@ int main(int argc, char **argv) {
   double elapsed_time = (finish_time.tv_sec - start_time.tv_sec) * 1000.0;
   elapsed_time += (finish_time.tv_usec - start_time.tv_usec) / 1000.0;
 
-  free(array);
+ 
 
   printf("Min: %d\n", min_max.min);
   printf("Max: %d\n", min_max.max);
-  printf("Elapsed time: %fms\n", elapsed_time);
+
   fflush(NULL);
   return 0;
 }
